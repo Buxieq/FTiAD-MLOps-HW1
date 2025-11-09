@@ -19,7 +19,7 @@ wheels/
 .installed.cfg
 *.egg
 
-
+.vscode
 myenv/
 
 
