@@ -2,12 +2,11 @@
 
 Проект реализует REST и gRPC API для обучения и использования моделей.  Доступно 2 класса моделей, хранение обученных моделей, дашборд и документация.
 
-
 Проект выполнен:
+
 - Иванов Илья
 - Чалабян Левон
 - Ханин Вадим
-
 
 ## Структура проекта
 
@@ -28,16 +27,16 @@ hw1/
 │   ├── random_forest.py         # Random Forest модель
 │   └── registry.py              # Реестр моделей
 ├── storage/                     # Хранилище моделей
-│   └── model_storage.py         
-├── utils/                       
+│   └── model_storage.py       
+├── utils/                     
 │   └── logger.py                # Логирование
 ├── dashboard/                   # Дашборд
-│   └── app.py                   
+│   └── app.py                 
 ├── clients/                     # для тестирования
 │   ├── grpc_client.py           # скрипт
 │   └── grpc_client.ipynb        # Jupyter ноутбук
 ├── pyproject.toml               # Poetry
-└── README.md                    
+└── README.md                  
 ```
 
 ## Установка
@@ -62,9 +61,11 @@ python generate_grpc_code.py
 ## Запуск
 
 ### REST API
+
 ```
 poetry run uvicorn api.rest.main:app --host 0.0.0.0 --port 8000
 ```
+
 Swagger документация: `http://localhost:8000/docs`
 ReDoc документация: `http://localhost:8000/redoc`
 
@@ -156,36 +157,9 @@ curl -X DELETE http://localhost:8000/api/v1/models/{model_id}
 python clients/grpc_client.py
 ```
 
-#### Использование Jupyter ноутбука
+#### Jupyter ноутбук с примером работы
 
-Откройте `clients/grpc_client.ipynb` в Jupyter и выполните ячейки.
-
-#### Пример использования в коде
-
-```python
-from clients.grpc_client import MLModelClient
-
-client = MLModelClient()
-
-# Health check
-health = client.health_check()
-
-# List available models
-models = client.list_model_classes()
-
-# Train a model
-result = client.train_model(
-    model_class="LinearRegression",
-    hyperparameters={"fit_intercept": True},
-    X=[[1.0, 2.0], [2.0, 3.0]],
-    y=[3.0, 5.0]
-)
-
-# Get predictions
-predictions = client.predict(result["model_id"], [[4.0, 5.0]])
-
-client.close()
-```
+`clients/grpc_client.ipynb` в Jupyter и ячейки
 
 ## Доступные модели
 
