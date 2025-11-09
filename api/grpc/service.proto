@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package mlops;
+
+// Service for ML model operations
+service MLModelService {
+  // List available model classes
+  rpc ListModelClasses (ListModelClassesRequest) returns (ListModelClassesResponse);
+  
+  // Train a model
+  rpc TrainModel (TrainModelRequest) returns (TrainModelResponse);
+  
+  // Get predictions from a model
+  rpc Predict (PredictRequest) returns (PredictResponse);
+  
+  // Retrain a model
+  rpc RetrainModel (RetrainModelRequest) returns (TrainModelResponse);
+  
+  // Delete a model
+  rpc DeleteModel (DeleteModelRequest) returns (DeleteModelResponse);
+  
+  // List all trained models
+  rpc ListModels (ListModelsRequest) returns (ListModelsResponse);
+  
+  // Health check
+  rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Request/Response messages
+
+message ListModelClassesRequest {
+}
+
+message ListModelClassesResponse {
+  repeated ModelClassInfo available_models = 1;
+}
+
+message ModelClassInfo {
+  string model_class = 1;
+  map<string, HyperparameterInfo> hyperparameter_schema = 2;
+}
+
+message HyperparameterInfo {
+  string type = 1;
+  string default_value = 2;
+  string description = 3;
+}
+
+message TrainModelRequest {
+  string model_class = 1;
+  map<string, string> hyperparameters = 2;
+  repeated DataPoint X = 3;
+  repeated double y = 4;
+}
+
+message DataPoint {
+  repeated double values = 1;
+}
+
+message TrainModelResponse {
+  string model_id = 1;
+  string model_class = 2;
+  map<string, string> hyperparameters = 3;
+  string message = 4;
+}
+
+message PredictRequest {
+  string model_id = 1;
+  repeated DataPoint X = 2;
+}
+
+message PredictResponse {
+  repeated double predictions = 1;
+  string model_id = 2;
+}
+
+message RetrainModelRequest {
+  string model_id = 1;
+  string model_class = 2;
+  map<string, string> hyperparameters = 3;
+  repeated DataPoint X = 4;
+  repeated double y = 5;
+}
+
+message DeleteModelRequest {
+  string model_id = 1;
+}
+
+message DeleteModelResponse {
+  string message = 1;
+}
+
+message ListModelsRequest {
+}
+
+message ListModelsResponse {
+  repeated ModelInfo models = 1;
+}
+
+message ModelInfo {
+  string model_id = 1;
+  string model_class_name = 2;
+  map<string, string> hyperparameters = 3;
+  string created_at = 4;
+  bool is_trained = 5;
+}
+
+message HealthCheckRequest {
+}
+
+message HealthCheckResponse {
+  string status = 1;
+  string message = 2;
+}
+
