@@ -34,3 +34,6 @@ api/grpc/*_pb2_grpc.py
 
 *.csv
 *.pdf
+
+# Test для сервиса
+test_service_with_insurance_data.py
