@@ -140,8 +140,6 @@ async def train_model(request: TrainRequest):
             model.train(train, target, request.hyperparameters)
             logger.info("Model training completed successfully")
         except Exception as e:
-            if mlflow_run_id:
-                mlflow_tracker.end_run()
             logger.error(f"Error during model training: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -170,14 +168,11 @@ async def train_model(request: TrainRequest):
             logger.info(f"Model saved with ID: {model_id}")
         except Exception as e:
             logger.error(f"Error saving model: {str(e)}")
-            if mlflow_run_id:
-                mlflow_tracker.end_run()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error saving model: {str(e)}"
             )
         finally:
-            # Завершить MLFlow run
             if mlflow_run_id:
                 mlflow_tracker.end_run()
         
@@ -362,8 +357,6 @@ async def retrain_model(model_id: str, request: TrainRequest):
             model.train(train, target, request.hyperparameters)
             logger.info("Model retraining completed successfully")
         except Exception as e:
-            if mlflow_run_id:
-                mlflow_tracker.end_run()
             logger.error(f"Error during model retraining: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -392,8 +385,6 @@ async def retrain_model(model_id: str, request: TrainRequest):
             logger.info(f"Retrained model saved with ID: {new_model_id}")
         except Exception as e:
             logger.error(f"Error saving retrained model: {str(e)}")
-            if mlflow_run_id:
-                mlflow_tracker.end_run()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error saving retrained model: {str(e)}"
