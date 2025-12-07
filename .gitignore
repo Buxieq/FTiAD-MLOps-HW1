@@ -33,4 +33,4 @@ api/grpc/*_pb2_grpc.py
 .ipynb_checkpoints/
 
 *.csv
-
+*.pdf
