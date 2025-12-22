@@ -37,3 +37,5 @@ api/grpc/*_pb2_grpc.py
 
 # Test для сервиса
 test_service_with_insurance_data.py
+
+task.txt
