@@ -11,6 +11,8 @@ from api.rest.schemas import (
 )
 from models.registry import ModelRegistry
 from storage.model_storage import ModelStorage
+from storage.dataset_storage import DatasetStorage
+from tracking.mlflow_tracker import MLFlowTracker
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -18,6 +20,8 @@ router = APIRouter(prefix="/api/v1/models", tags=["models"])
 
 
 model_storage = ModelStorage()
+dataset_storage = DatasetStorage()
+mlflow_tracker = MLFlowTracker()
 
 
 @router.get("/list", response_model=ModelClassListResponse, summary="List available model classes")
@@ -84,27 +88,56 @@ async def train_model(request: TrainRequest):
             )
         
         try:
-            X = np.array(request.X)
-            y = np.array(request.y)
-            
-            # Проверить формы данных
-            if len(X.shape) != 2:
-                raise ValueError("X must be a 2D array")
-            if len(y.shape) != 1:
-                raise ValueError("y must be a 1D array")
-            if X.shape[0] != y.shape[0]:
-                raise ValueError("X and y must have the same number of samples")
+            train = np.array(request.X)
+            target = np.array(request.y)
         except Exception as e:
-            logger.error(f"Invalid data format: {str(e)}")
+            logger.error(f"Failed to convert data to numpy arrays: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid data format: {str(e)}"
             )
         
+        # Сохранить датасет через DVC
+        dvc_dataset_version = None
+        try:
+            dataset_path, dvc_dataset_version = dataset_storage.save_dataset(
+                train=train,
+                target=target,
+                metadata={"model_class": request.model_class, "hyperparameters": request.hyperparameters}
+            )
+            logger.info(f"Dataset saved with DVC version: {dvc_dataset_version}")
+        except Exception as e:
+            logger.warning(f"Failed to save dataset with DVC: {str(e)}")
+        
+        # Начать MLFlow run
+        mlflow_run_id = None
+        try:
+            run_name = f"{request.model_class}_{np.random.randint(1000, 9999)}"
+            mlflow_run_id = mlflow_tracker.start_run(
+                run_name=run_name,
+                tags={"model_class": request.model_class, "api": "rest"}
+            )
+            logger.info(f"Started MLFlow run: {mlflow_run_id}")
+        except Exception as e:
+            logger.warning(f"Failed to start MLFlow run: {str(e)}")
+        
+        try:
+            # Логировать параметры и информацию о датасете
+            if mlflow_run_id:
+                mlflow_tracker.log_params(request.hyperparameters)
+                mlflow_tracker.log_params({"model_class": request.model_class})
+                mlflow_tracker.log_dataset_info(
+                    n_samples=train.shape[0],
+                    n_features=train.shape[1],
+                    dataset_path=dvc_dataset_version
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log parameters to MLFlow: {str(e)}")
+        
         # Обучить модель
         try:
             logger.info(f"Training model with hyperparameters: {request.hyperparameters}")
-            model.train(X, y, request.hyperparameters)
+            model.train(train, target, request.hyperparameters)
             logger.info("Model training completed successfully")
         except Exception as e:
             logger.error(f"Error during model training: {str(e)}")
@@ -113,12 +146,24 @@ async def train_model(request: TrainRequest):
                 detail=f"Error during model training: {str(e)}"
             )
         
+        # Вычислить метрики и залогировать в MLFlow
+        try:
+            target_pred = model.predict(train)
+            if mlflow_run_id:
+                metrics = mlflow_tracker.calculate_and_log_metrics(target, target_pred)
+                mlflow_tracker.log_model(model.model, artifact_path="model")
+                logger.info(f"Logged metrics to MLFlow: {metrics}")
+        except Exception as e:
+            logger.warning(f"Failed to log metrics to MLFlow: {str(e)}")
+        
         # Сохранить модель
         try:
             model_id = model_storage.save_model(
                 model=model,
                 model_class_name=request.model_class,
-                hyperparameters=request.hyperparameters
+                hyperparameters=request.hyperparameters,
+                dvc_dataset_version=dvc_dataset_version,
+                mlflow_run_id=mlflow_run_id
             )
             logger.info(f"Model saved with ID: {model_id}")
         except Exception as e:
@@ -127,6 +172,9 @@ async def train_model(request: TrainRequest):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error saving model: {str(e)}"
             )
+        finally:
+            if mlflow_run_id:
+                mlflow_tracker.end_run()
         
         return TrainResponse(
             model_id=model_id,
@@ -196,18 +244,16 @@ async def predict(model_id: str, request: PredictRequest):
             )
         
         try:
-            X = np.array(request.X)
-            if len(X.shape) != 2:
-                raise ValueError("X must be a 2D array")
+            features = np.array(request.X)
         except Exception as e:
-            logger.error(f"Invalid data format: {str(e)}")
+            logger.error(f"Failed to convert data to numpy array: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid data format: {str(e)}"
             )
         
         try:
-            predictions = model.predict(X)
+            predictions = model.predict(features)
             logger.info(f"Predictions generated successfully for model {model_id}")
         except Exception as e:
             logger.error(f"Error during prediction: {str(e)}")
@@ -260,25 +306,55 @@ async def retrain_model(model_id: str, request: TrainRequest):
             )
         
         try:
-            X = np.array(request.X)
-            y = np.array(request.y)
-            
-            if len(X.shape) != 2:
-                raise ValueError("X must be a 2D array")
-            if len(y.shape) != 1:
-                raise ValueError("y must be a 1D array")
-            if X.shape[0] != y.shape[0]:
-                raise ValueError("X and y must have the same number of samples")
+            train = np.array(request.X)
+            target = np.array(request.y)
         except Exception as e:
-            logger.error(f"Invalid data format: {str(e)}")
+            logger.error(f"Failed to convert data to numpy arrays: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid data format: {str(e)}"
             )
         
+        # Сохранить датасет через DVC
+        dvc_dataset_version = None
+        try:
+            dataset_path, dvc_dataset_version = dataset_storage.save_dataset(
+                train=train,
+                target=target,
+                model_id=model_id,
+                metadata={"model_class": request.model_class, "hyperparameters": request.hyperparameters, "retrain": True}
+            )
+            logger.info(f"Dataset saved with DVC version: {dvc_dataset_version}")
+        except Exception as e:
+            logger.warning(f"Failed to save dataset with DVC: {str(e)}")
+        
+        # Начать MLFlow run
+        mlflow_run_id = None
+        try:
+            run_name = f"{request.model_class}_retrain_{np.random.randint(1000, 9999)}"
+            mlflow_run_id = mlflow_tracker.start_run(
+                run_name=run_name,
+                tags={"model_class": request.model_class, "api": "rest", "retrain": "true"}
+            )
+            logger.info(f"Started MLFlow run: {mlflow_run_id}")
+        except Exception as e:
+            logger.warning(f"Failed to start MLFlow run: {str(e)}")
+        
+        try:
+            if mlflow_run_id:
+                mlflow_tracker.log_params(request.hyperparameters)
+                mlflow_tracker.log_params({"model_class": request.model_class, "retrain": True})
+                mlflow_tracker.log_dataset_info(
+                    n_samples=train.shape[0],
+                    n_features=train.shape[1],
+                    dataset_path=dvc_dataset_version
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log parameters to MLFlow: {str(e)}")
+        
         try:
             model = ModelRegistry.create_model(request.model_class)
-            model.train(X, y, request.hyperparameters)
+            model.train(train, target, request.hyperparameters)
             logger.info("Model retraining completed successfully")
         except Exception as e:
             logger.error(f"Error during model retraining: {str(e)}")
@@ -287,12 +363,24 @@ async def retrain_model(model_id: str, request: TrainRequest):
                 detail=f"Error during model retraining: {str(e)}"
             )
         
+        # Вычислить метрики и залогировать в MLFlow
+        try:
+            target_pred = model.predict(train)
+            if mlflow_run_id:
+                metrics = mlflow_tracker.calculate_and_log_metrics(target, target_pred)
+                mlflow_tracker.log_model(model.model, artifact_path="model")
+                logger.info(f"Logged metrics to MLFlow: {metrics}")
+        except Exception as e:
+            logger.warning(f"Failed to log metrics to MLFlow: {str(e)}")
+        
         try:
             new_model_id = model_storage.save_model(
                 model=model,
                 model_class_name=request.model_class,
                 hyperparameters=request.hyperparameters,
-                model_id=model_id
+                model_id=model_id,
+                dvc_dataset_version=dvc_dataset_version,
+                mlflow_run_id=mlflow_run_id
             )
             logger.info(f"Retrained model saved with ID: {new_model_id}")
         except Exception as e:
@@ -301,6 +389,9 @@ async def retrain_model(model_id: str, request: TrainRequest):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error saving retrained model: {str(e)}"
             )
+        finally:
+            if mlflow_run_id:
+                mlflow_tracker.end_run()
         
         return TrainResponse(
             model_id=new_model_id,
